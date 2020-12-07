@@ -29,7 +29,7 @@ from torchvision.utils import save_image
 
 from model import WaveEncoder, WaveDecoder
 
-from utils.core import feature_wct
+from utils.core import feature_wct, feature_wct2
 from utils.io import Timer, open_image, load_segment, compute_label_info
 
 
@@ -39,8 +39,8 @@ IMG_EXTENSIONS = [
 ]
 
 
-def is_image_file(filename):
-    return any(filename.endswith(extension) for extension in IMG_EXTENSIONS)
+def is_image_file(filename): # image 확장자 체크하는 기능
+    return any(filename.endswith(extension) for extension in IMG_EXTENSIONS) # 단하나라도 참이 있으면 True
 
 
 class WCT2:
@@ -54,7 +54,7 @@ class WCT2:
         self.verbose = verbose
         self.encoder = WaveEncoder(option_unpool).to(self.device)
         self.decoder = WaveDecoder(option_unpool).to(self.device)
-        self.encoder.load_state_dict(torch.load(os.path.join(model_path, 'wave_encoder_{}_l4.pth'.format(option_unpool)), map_location=lambda storage, loc: storage))
+        self.encoder.load_state_dict(torch.load(os.path.join(model_path, 'wave_encoder_{}_l4.pth'.format(option_unpool)), map_location=lambda storage, loc: storage)) #<- weight 값 불러오기
         self.decoder.load_state_dict(torch.load(os.path.join(model_path, 'wave_decoder_{}_l4.pth'.format(option_unpool)), map_location=lambda storage, loc: storage))
 
     def print_(self, msg):
@@ -62,14 +62,15 @@ class WCT2:
             print(msg)
 
     def encode(self, x, skips, level):
-        return self.encoder.encode(x, skips, level)
+        return self.encoder.encode(x, skips, level) #encoder 가져오기
 
     def decode(self, x, skips, level):
-        return self.decoder.decode(x, skips, level)
+        return self.decoder.decode(x, skips, level) #decoder 가져오기
 
-    def get_all_feature(self, x):
+    def get_all_feature(self, x): #style feature를 가져오기 위해서
         skips = {}
-        feats = {'encoder': {}, 'decoder': {}}
+        feats = {'encoder': {}, 'decoder': {}} #dictionary 안에 dictionary
+
         for level in [1, 2, 3, 4]:
             x = self.encode(x, skips, level)
             if 'encoder' in self.transfer_at:
@@ -77,47 +78,70 @@ class WCT2:
 
         if 'encoder' not in self.transfer_at:
             feats['decoder'][4] = x
+
         for level in [4, 3, 2]:
             x = self.decode(x, skips, level)
             if 'decoder' in self.transfer_at:
                 feats['decoder'][level - 1] = x
+                
         return feats, skips
 
+    #여기가 굉장히 중요한 부분 
     def transfer(self, content, style, content_segment, style_segment, alpha=1):
         label_set, label_indicator = compute_label_info(content_segment, style_segment)
         content_feat, content_skips = content, {}
+
         style_feats, style_skips = self.get_all_feature(style)
 
         wct2_enc_level = [1, 2, 3, 4]
         wct2_dec_level = [1, 2, 3, 4]
         wct2_skip_level = ['pool1', 'pool2', 'pool3']
 
+        # content feature에 대한 wct transform content_skips은 empty list
         for level in [1, 2, 3, 4]:
             content_feat = self.encode(content_feat, content_skips, level)
+         
             if 'encoder' in self.transfer_at and level in wct2_enc_level:
-                content_feat = feature_wct(content_feat, style_feats['encoder'][level],
-                                           content_segment, style_segment,
-                                           label_set, label_indicator,
-                                           alpha=alpha, device=self.device)
-                self.print_('transfer at encoder {}'.format(level))
+                # if level is 4 :
+                    content_feat = feature_wct2(content_feat, style_feats['encoder'][level],
+                                               content_segment, style_segment,
+                                               label_set, label_indicator,
+                                               alpha=alpha, device=self.device)
+                # else:
+                #     content_feat = feature_wct(content_feat, style_feats['encoder'][level],
+                #                                content_segment, style_segment,
+                #                                label_set, label_indicator,
+                #                                alpha=alpha, device=self.device)
+                    self.print_('transfer at encoder {}'.format(level))
+
+        #skip connection에도 wct transform을 해주었다.
         if 'skip' in self.transfer_at:
             for skip_level in wct2_skip_level:
                 for component in [0, 1, 2]:  # component: [LH, HL, HH]
-                    content_skips[skip_level][component] = feature_wct(content_skips[skip_level][component], style_skips[skip_level][component],
+                    content_skips[skip_level][component] = feature_wct2(content_skips[skip_level][component], style_skips[skip_level][component],
                                                                        content_segment, style_segment,
                                                                        label_set, label_indicator,
                                                                        alpha=alpha, device=self.device)
                 self.print_('transfer at skip {}'.format(skip_level))
 
+        #decoder에 대한 wct transform
         for level in [4, 3, 2, 1]:
             if 'decoder' in self.transfer_at and level in style_feats['decoder'] and level in wct2_dec_level:
-                content_feat = feature_wct(content_feat, style_feats['decoder'][level],
-                                           content_segment, style_segment,
-                                           label_set, label_indicator,
-                                           alpha=alpha, device=self.device)
-                self.print_('transfer at decoder {}'.format(level))
+                # if level is 4 : 
+                    content_feat = feature_wct2(content_feat, style_feats['decoder'][level],
+                                               content_segment, style_segment,
+                                               label_set, label_indicator,
+                                               alpha=alpha, device=self.device)
+                # else:
+                #     content_feat = feature_wct(content_feat, style_feats['decoder'][level],
+                #                                content_segment, style_segment,
+                #                                label_set, label_indicator,
+                #                                alpha=alpha, device=self.device)
+                    self.print_('transfer at decoder {}'.format(level))
+
             content_feat = self.decode(content_feat, content_skips, level)
-        return content_feat
+
+        return content_feat #이거 이미지네 그냥.. 뭐야 왜 feat이라고 하지...
 
 
 def get_all_transfer():
@@ -154,6 +178,8 @@ def run_bulk(config):
         if not is_image_file(fname):
             print('invalid file (is not image), ', fname)
             continue
+
+        #content 및 style file 경로
         _content = os.path.join(config.content, fname)
         _style = os.path.join(config.style, fname)
         _content_segment = os.path.join(config.content_segment, fname) if config.content_segment else None
@@ -162,6 +188,7 @@ def run_bulk(config):
 
         content = open_image(_content, config.image_size).to(device)
         style = open_image(_style, config.image_size).to(device)
+
         content_segment = load_segment(_content_segment, config.image_size)
         style_segment = load_segment(_style_segment, config.image_size)     
         _, ext = os.path.splitext(fname)
@@ -172,8 +199,10 @@ def run_bulk(config):
                 fname_output = _output.replace(ext, '_{}_{}.{}'.format(config.option_unpool, postfix, ext))
                 print('------ transfer:', _output)
                 wct2 = WCT2(transfer_at=transfer_at, option_unpool=config.option_unpool, device=device, verbose=config.verbose)
+
                 with torch.no_grad():
                     img = wct2.transfer(content, style, content_segment, style_segment, alpha=config.alpha)
+
                 save_image(img.clamp_(0, 1), fname_output, padding=0)
         else:
             for _transfer_at in get_all_transfer():
@@ -211,6 +240,14 @@ if __name__ == '__main__':
         os.makedirs(os.path.join(config.output))
 
     '''
-    CUDA_VISIBLE_DEVICES=6 python transfer.py --content ./examples/content --style ./examples/style --content_segment ./examples/content_segment --style_segment ./examples/style_segment/ --output ./outputs/ --verbose --image_size 512 -a
+    CUDA_VISIBLE_DEVICES=6 python transfer.py 
+    --content ./examples/content 
+    --style ./examples/style 
+    --content_segment ./examples/content_segment 
+    --style_segment ./examples/style_segment/ 
+    --output ./outputs/ 
+    --verbose 
+    --image_size 512 
+    -a
     '''
     run_bulk(config)

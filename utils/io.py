@@ -29,14 +29,18 @@ class Timer:
 def open_image(image_path, image_size=None):
     image = Image.open(image_path)
     _transforms = []
-    if image_size is not None:
-        image = transforms.Resize(image_size)(image)
+
+    if image_size is not None: #input으로 image size가 있는 경우 
+        image = transforms.Resize(image_size)(image) #512x512로 resize
         # _transforms.append(transforms.Resize(image_size))
-    w, h = image.size
+
+    w, h = image.size # 512x512
+
     _transforms.append(transforms.CenterCrop((h // 16 * 16, w // 16 * 16)))
     _transforms.append(transforms.ToTensor())
-    transform = transforms.Compose(_transforms)
-    return transform(image).unsqueeze(0)
+    transform = transforms.Compose(_transforms) #위의 연산을 동시에 진행한다.
+
+    return transform(image).unsqueeze(0) # 첫번째 차원에 1인 차원이 추가
 
 
 def change_seg(seg):
@@ -77,27 +81,33 @@ def change_seg(seg):
 def load_segment(image_path, image_size=None):
     if not image_path:
         return np.asarray([])
+
     image = Image.open(image_path)
+
     if image_size is not None:
-        transform = transforms.Resize(image_size, interpolation=Image.NEAREST)
-        image = transform(image)
+        transform = transforms.Resize(image_size, interpolation=Image.NEAREST) 
+        image = transform(image) #512x512로 resize
+    
     w, h = image.size
     transform = transforms.CenterCrop((h // 16 * 16, w // 16 * 16))
     image = transform(image)
     if len(np.asarray(image).shape) == 3:
         image = change_seg(image)
+
     return np.asarray(image)
 
 
 def compute_label_info(content_segment, style_segment):
     if not content_segment.size or not style_segment.size:
         return None, None
-    max_label = np.max(content_segment) + 1
+    max_label = np.max(content_segment) + 1 # label의 개수
     label_set = np.unique(content_segment)
-    label_indicator = np.zeros(max_label)
+
+    label_indicator = np.zeros(max_label) # label 개수만큼 차원을 만든다.
+
     for l in label_set:
-        content_mask = np.where(content_segment.reshape(content_segment.shape[0] * content_segment.shape[1]) == l)
-        style_mask = np.where(style_segment.reshape(style_segment.shape[0] * style_segment.shape[1]) == l)
+        content_mask = np.where(content_segment.reshape(content_segment.shape[0] * content_segment.shape[1]) == l) # 값이 L인 인덱스 찾기
+        style_mask = np.where(style_segment.reshape(style_segment.shape[0] * style_segment.shape[1]) == l) # 값이 L인 인덱스 찾기
 
         c_size = content_mask[0].size
         s_size = style_mask[0].size
@@ -105,6 +115,7 @@ def compute_label_info(content_segment, style_segment):
             label_indicator[l] = True
         else:
             label_indicator[l] = False
+
     return label_set, label_indicator
 
 
