@@ -29,7 +29,7 @@ from torchvision.utils import save_image
 
 from model import WaveEncoder, WaveDecoder
 
-from utils.core import feature_wct, feature_wct2
+from utils.core import feature_wct2
 from utils.io import Timer, open_image, load_segment, compute_label_info
 
 
@@ -87,7 +87,7 @@ class WCT2:
         return feats, skips
 
     #여기가 굉장히 중요한 부분 
-    def transfer(self, content, style, content_segment, style_segment, alpha=1):
+    def transfer(self, content, style, content_segment, style_segment, alpha=0.5):
         label_set, label_indicator = compute_label_info(content_segment, style_segment)
         content_feat, content_skips = content, {}
 
@@ -102,17 +102,11 @@ class WCT2:
             content_feat = self.encode(content_feat, content_skips, level)
          
             if 'encoder' in self.transfer_at and level in wct2_enc_level:
-                # if level is 4 :
-                    content_feat = feature_wct2(content_feat, style_feats['encoder'][level],
-                                               content_segment, style_segment,
-                                               label_set, label_indicator,
-                                               alpha=alpha, device=self.device)
-                # else:
-                #     content_feat = feature_wct(content_feat, style_feats['encoder'][level],
-                #                                content_segment, style_segment,
-                #                                label_set, label_indicator,
-                #                                alpha=alpha, device=self.device)
-                    self.print_('transfer at encoder {}'.format(level))
+                content_feat = feature_wct2(content_feat, style_feats['encoder'][level],
+                                            content_segment, style_segment,
+                                            label_set, label_indicator,
+                                            alpha=alpha, device=self.device)
+                self.print_('transfer at encoder {}'.format(level))
 
         #skip connection에도 wct transform을 해주었다.
         if 'skip' in self.transfer_at:
@@ -127,21 +121,14 @@ class WCT2:
         #decoder에 대한 wct transform
         for level in [4, 3, 2, 1]:
             if 'decoder' in self.transfer_at and level in style_feats['decoder'] and level in wct2_dec_level:
-                # if level is 4 : 
                     content_feat = feature_wct2(content_feat, style_feats['decoder'][level],
                                                content_segment, style_segment,
                                                label_set, label_indicator,
                                                alpha=alpha, device=self.device)
-                # else:
-                #     content_feat = feature_wct(content_feat, style_feats['decoder'][level],
-                #                                content_segment, style_segment,
-                #                                label_set, label_indicator,
-                #                                alpha=alpha, device=self.device)
                     self.print_('transfer at decoder {}'.format(level))
-
             content_feat = self.decode(content_feat, content_skips, level)
 
-        return content_feat #이거 이미지네 그냥.. 뭐야 왜 feat이라고 하지...
+        return content_feat 
 
 
 def get_all_transfer():
@@ -224,7 +211,7 @@ if __name__ == '__main__':
     parser.add_argument('--style_segment', type=str, default=None)
     parser.add_argument('--output', type=str, default='./outputs')
     parser.add_argument('--image_size', type=int, default=512)
-    parser.add_argument('--alpha', type=float, default=1)
+    parser.add_argument('--alpha', type=float, default=0.5)
     parser.add_argument('--option_unpool', type=str, default='cat5', choices=['sum', 'cat5'])
     parser.add_argument('-e', '--transfer_at_encoder', action='store_true')
     parser.add_argument('-d', '--transfer_at_decoder', action='store_true')
